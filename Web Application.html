@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>V.O.I.C.E – ESP32 Control</title>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+
+<style>
+html,body{
+  margin:0;padding:0;
+  min-height:100vh;
+  overflow-x:hidden;
+  font-family:'Poppins','Segoe UI',sans-serif;
+  background:linear-gradient(135deg,#89f7fe,#66a6ff);
+  color:#0a192f;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+}
+h1{
+  font-size:3rem;text-align:center;margin-top:30px;
+  color:#fff;text-shadow:0 3px 10px rgba(0,0,0,0.3);
+}
+h3{
+  font-size:1.1rem;text-align:center;margin-top:-10px;
+  color:#e0f7fa;
+}
+.card{
+  background:#fff;border-radius:16px;
+  box-shadow:0 10px 30px rgba(0,0,0,0.2);
+  padding:24px 28px;margin:24px;
+  width:90%;max-width:700px;
+}
+input{
+  padding:10px 14px;border-radius:10px;
+  border:2px solid #00796b;width:160px;
+  margin-right:12px;font-size:1rem;
+}
+button{
+  padding:10px 18px;border-radius:10px;
+  border:none;background:#00796b;color:white;
+  font-weight:600;cursor:pointer;
+}
+.status{margin-top:10px;font-weight:600;}
+.good{color:#00796b;} .bad{color:#b71c1c;}
+#confirmation{
+  display:none;margin-top:12px;padding:14px;
+  background:#b2dfdb;border-radius:10px;
+  border-left:5px solid #00796b;
+}
+#log{
+  background:#e0f2f1;border-radius:10px;
+  padding:12px;margin-top:12px;
+  height:150px;overflow-y:auto;
+  font-family:monospace;
+}
+.icon-bar{
+  display:flex;justify-content:space-around;
+  align-items:center;margin-top:20px;flex-wrap:wrap;
+}
+.icon-container{
+  text-align:center;margin:10px;transition:all .3s;
+}
+.icon-container svg{
+  width:60px;height:60px;color:#004d40;
+  transition:transform .3s,color .3s;
+}
+.icon-label{margin-top:6px;font-weight:600;}
+.icon-on svg{color:#ffd600;transform:scale(1.2);
+filter:drop-shadow(0 0 10px #ffeb3b);}
+#threeContainer{
+  width:100%;max-width:650px;height:280px;
+  margin-top:16px;border-radius:12px;
+  background:#c5e1a5;box-shadow:0 8px 18px rgba(0,0,0,0.15);
+  overflow:hidden;
+}
+#chatbotIcon{
+  text-align:center;margin-top:15px;transition:all .3s;
+}
+#chatbotIcon svg{
+  width:60px;height:60px;color:#004d40;
+  transition:transform .3s,color .3s;
+}
+#chatbotIcon.active svg{
+  color:#ff4081;
+  transform:scale(1.2);
+  filter:drop-shadow(0 0 12px #ff80ab);
+}
+footer{
+  margin-top:40px;padding:20px;width:100%;
+  text-align:center;font-size:.95rem;color:#fff;
+  background:linear-gradient(135deg,#66a6ff,#89f7fe);
+}
+</style>
+</head>
+<body>
+
+<h1>V.O.I.C.E</h1>
+<h3>Voice Oriented Intelligent Command Engine</h3>
+
+<div class="card">
+  <div>
+    ESP32 IP: <input id="espIp" placeholder="192.168.1.50">
+    <button id="connectBtn">Connect</button>
+    <button id="disconnectBtn" disabled>Disconnect</button>
+  </div>
+
+  <div style="margin-top:10px;">
+    <button id="startRec">🎤 Start Voice</button>
+    <button id="stopRec" disabled>⏹ Stop</button>
+  </div>
+
+  <div class="status">WS: <span id="wsStatus" class="bad">disconnected</span></div>
+
+  <div id="confirmation">
+    Recognized Text: <span id="recognizedText"></span><br/>
+    <button id="confirmBtn">✅ Confirm</button>
+    <button id="cancelBtn">❌ Cancel</button>
+  </div>
+
+  <div class="icon-bar">
+    <div id="icon-light" class="icon-container"><i data-lucide="lightbulb"></i><div class="icon-label">Light</div></div>
+    <div id="icon-fan" class="icon-container"><i data-lucide="fan"></i><div class="icon-label">Fan</div></div>
+    <div id="icon-relay" class="icon-container"><i data-lucide="power"></i><div class="icon-label">Relay</div></div>
+    <div id="chatbotIcon" class="icon-container"><i data-lucide="bot"></i><div class="icon-label">Chatbot</div></div>
+  </div>
+
+  <div id="log"></div>
+</div>
+
+<div id="threeContainer"></div>
+
+<footer>Made by - <b>Ayush Pathak (24BCE1007)</b>, <b>Saikat De (24BCE1172)</b>, <b>Priyan G (24BCE1059)</b></footer>
+
+<script>
+lucide.createIcons();
+
+const wsStatusEl=document.getElementById('wsStatus');
+const logEl=document.getElementById('log');
+const espIpInput=document.getElementById('espIp');
+const connectBtn=document.getElementById('connectBtn');
+const disconnectBtn=document.getElementById('disconnectBtn');
+const startRecBtn=document.getElementById('startRec');
+const stopRecBtn=document.getElementById('stopRec');
+const confirmationDiv=document.getElementById('confirmation');
+const recognizedSpan=document.getElementById('recognizedText');
+const confirmBtn=document.getElementById('confirmBtn');
+const cancelBtn=document.getElementById('cancelBtn');
+const chatbotIcon=document.getElementById('chatbotIcon');
+
+let ws=null,lastCommandCodes=[];
+let bulbOn=false,fanOn=false,relayOn=false;
+
+function log(msg){
+  const t=new Date().toLocaleTimeString();
+  logEl.textContent=`[${t}] ${msg}\n`+logEl.textContent;
+}
+function setWsStatus(c){
+  wsStatusEl.textContent=c?'connected':'disconnected';
+  wsStatusEl.className=c?'good':'bad';
+  connectBtn.disabled=c;disconnectBtn.disabled=!c;
+}
+
+connectBtn.onclick=()=>{
+  const ip=espIpInput.value.trim();
+  if(!ip){alert('Enter ESP32 IP');return;}
+  ws=new WebSocket('ws://'+ip+':81/');
+  ws.onopen=()=>{log('Connected');setWsStatus(true);};
+  ws.onclose=()=>{log('Disconnected');setWsStatus(false);ws=null;};
+  ws.onerror=e=>log('WS error '+JSON.stringify(e));
+  ws.onmessage=m=>log('From ESP32: '+m.data);
+};
+disconnectBtn.onclick=()=>{if(ws) ws.close();};
+
+function sendCommands(codes){
+  if(!ws||ws.readyState!==WebSocket.OPEN){log('WS not connected');return;}
+  codes.forEach(code=>{
+    ws.send(code);
+    log('Sent: '+code);
+    updateVisuals(code);
+  });
+}
+
+// Chatbot query to local server
+async function queryChatbot(query){
+  try{
+    chatbotIcon.classList.add('active');
+    log('Querying local chatbot...');
+    const res=await fetch('http://localhost:3000/chat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({prompt:query})
+    });
+    const data=await res.json();
+    log('Chatbot reply: '+data.reply);
+    if(ws&&ws.readyState===WebSocket.OPEN){
+      ws.send("CHAT:"+data.reply);
+      log('Sent to ESP32 OLED');
+    }
+    return data.reply;
+  }catch(err){
+    log('Chatbot error: '+err);
+    return "Chatbot unreachable.";
+  }finally{
+    setTimeout(()=>chatbotIcon.classList.remove('active'),1500);
+  }
+}
+
+let recognition=null;
+if('webkitSpeechRecognition'in window||'SpeechRecognition'in window){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  recognition=new SR(); recognition.lang='en-US';
+  recognition.onstart=()=>{log('Listening...');startRecBtn.disabled=true;stopRecBtn.disabled=false;};
+  recognition.onresult=evt=>{
+    const t=evt.results[0][0].transcript.toLowerCase();
+    log('Heard: "'+t+'"');
+    const cmds=mapTextToCommands(t);
+    if(cmds.length>0){
+      lastCommandCodes=cmds;
+      recognizedSpan.textContent=t;
+      confirmationDiv.style.display='block';
+      scrollTo3D();
+    } else {
+      // No command matched → send to chatbot
+      log('No matching command. Sending to chatbot...');
+      queryChatbot(t);
+    }
+  };
+  recognition.onend=()=>{startRecBtn.disabled=false;stopRecBtn.disabled=true;};
+}
+startRecBtn.onclick=()=>{if(recognition)recognition.start();};
+stopRecBtn.onclick=()=>{if(recognition)recognition.stop();};
+confirmBtn.onclick=()=>{if(lastCommandCodes.length>0)sendCommands(lastCommandCodes);confirmationDiv.style.display='none';};
+cancelBtn.onclick=()=>{confirmationDiv.style.display='none';log('Cancelled');};
+
+function mapTextToCommands(t){
+  const cmds=[];
+  const on=/on|chalu|suru|chala|jala|gala/.test(t);
+  const off=/(of|off|bandh|band|bondho|bondo|bujhayo)/.test(t);
+  const both=/light.*fan|fan.*light/.test(t);
+  const all=/(all|everything|sab|sabkuch|sobkichu)/.test(t);
+
+  if(both){
+    if(/light.*fan.*on|fan.*light.*on/.test(t))return['41'];
+    if(/light.*fan.*off|fan.*light.*off/.test(t))return['40'];
+    if(/light.*fan.*off.*relay.*off|fan.*light.*off.*relay.*off/.test(t))return['51'];
+    if(/light.*fan.*on.*relay.*on|fan.*light.*on.*relay.*on/.test(t))return['50'];
+    if(/light.*off.*fan.*on/.test(t))return['43'];
+  }
+
+  if(all){
+    if(on)return['50'];
+    if(off)return['51'];
+  }
+
+  if(/light/.test(t)){
+    if(on)cmds.push('01');
+    else if(off)cmds.push('00');
+  }
+  if(/fan/.test(t)){
+    if(on)cmds.push('21');
+    else if(off)cmds.push('20');
+  }
+  if(/relay|plug|socket/.test(t)){
+    if(on)cmds.push('31');
+    else if(off)cmds.push('30');
+  }
+  return cmds;
+}
+
+function updateVisuals(code){
+  const lightIcon=document.getElementById('icon-light');
+  const fanIcon=document.getElementById('icon-fan');
+  const relayIcon=document.getElementById('icon-relay');
+
+  if(code==='01'){bulbOn=true;lightIcon.classList.add('icon-on');}
+  if(code==='00'){bulbOn=false;lightIcon.classList.remove('icon-on');}
+  if(code==='21'){fanOn=true;fanIcon.classList.add('icon-on');}
+  if(code==='20'){fanOn=false;fanIcon.classList.remove('icon-on');}
+  if(code==='31'){relayOn=true;relayIcon.classList.add('icon-on');}
+  if(code==='30'){relayOn=false;relayIcon.classList.remove('icon-on');}
+
+  if(code==='41'){bulbOn=true;fanOn=true;lightIcon.classList.add('icon-on');fanIcon.classList.add('icon-on');}
+  if(code==='40'){bulbOn=false;fanOn=false;lightIcon.classList.remove('icon-on');fanIcon.classList.remove('icon-on');}
+  if(code==='50'){bulbOn=false;fanOn=false;relayOn=false;lightIcon.classList.remove('icon-on');fanIcon.classList.remove('icon-on');relayIcon.classList.remove('icon-on');}
+  if(code==='51'){bulbOn=true;fanOn=true;relayOn=false;lightIcon.classList.remove('icon-on');fanIcon.classList.remove('icon-on');relayIcon.classList.remove('icon-on');}
+  if(code==='42'){bulbOn=true;fanOn=false;lightIcon.classList.add('icon-on');fanIcon.classList.remove('icon-on');}
+  if(code==='43'){bulbOn=false;fanOn=true;lightIcon.classList.remove('icon-on');fanIcon.classList.add('icon-on');}
+
+  update3DState();
+  scrollTo3D();
+}
+
+let scene,camera,renderer,lightBulb,fan;
+init3D();animate();
+
+function init3D(){
+  const c=document.getElementById('threeContainer');
+  scene=new THREE.Scene();
+  camera=new THREE.PerspectiveCamera(50,c.clientWidth/c.clientHeight,0.1,100);
+  camera.position.set(0,1,5);
+  renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+  renderer.setSize(c.clientWidth,c.clientHeight);
+  c.appendChild(renderer.domElement);
+  scene.add(new THREE.AmbientLight(0xffffff,0.6));
+  const dL=new THREE.DirectionalLight(0xffffff,0.6);
+  dL.position.set(5,5,5);scene.add(dL);
+  const bulbG=new THREE.SphereGeometry(0.5,32,32);
+  const bulbM=new THREE.MeshStandardMaterial({color:0xaaaaaa,emissive:0x000000});
+  lightBulb=new THREE.Mesh(bulbG,bulbM);
+  lightBulb.position.set(-1.2,0,0);scene.add(lightBulb);
+  fan=new THREE.Group();
+  for(let i=0;i<3;i++){
+    const bladeG=new THREE.BoxGeometry(0.05,0.8,0.02);
+    const bladeM=new THREE.MeshStandardMaterial({color:0x004d40});
+    const blade=new THREE.Mesh(bladeG,bladeM);
+    blade.rotation.z=i*Math.PI*2/3;fan.add(blade);
+  }
+  fan.position.set(1.2,0.25,0);scene.add(fan);
+}
+function update3DState(){lightBulb.material.emissive.setHex(bulbOn?0xffff33:0x000000);}
+function animate(){requestAnimationFrame(animate);if(fanOn)fan.rotation.y+=0.15;renderer.render(scene,camera);}
+window.addEventListener('resize',()=>{const c=document.getElementById('threeContainer');camera.aspect=c.clientWidth/c.clientHeight;camera.updateProjectionMatrix();renderer.setSize(c.clientWidth,c.clientHeight);});
+function scrollTo3D(){document.getElementById('threeContainer').scrollIntoView({behavior:'smooth',block:'center'});}
+</script>
+</body>
+</html>
