@@ -1,0 +1,29 @@
+# Arduino / ESP32 build artifacts
+*.bin
+*.elf
+*.hex
+*.map
+*.d
+
+# Backup and temp files
+*.bak
+*.tmp
+*.swp
+*.log
+*.DS_Store
+Thumbs.db
+
+# VSCode / PlatformIO / build folders
+.vscode/
+.pio/
+build/
+out/
+
+# Node.js stuff (for chat-server)
+node_modules/
+package-lock.json
+npm-debug.log
+
+# Web app build output (if any)
+dist/
+.env
